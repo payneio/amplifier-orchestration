@@ -1,0 +1,143 @@
+# Foreman-Demo Workflow
+# Multi-worker orchestration with issue queue management
+
+name: "Foreman-Worker Issue Processing"
+description: "Foreman creates issues, workers process them concurrently, foreman monitors and unblocks"
+default_profile: "foreman"
+
+phases:
+  # Phase 1: Foreman creates initial work queue
+  - name: "Issue Creation"
+    execution_mode: "sequential"
+    tasks:
+      - context_name: "foreman"
+        profile: "foreman"
+        prompt: |
+          Create 4 demo issues using the issue tool:
+
+          1. Title: "Fix login authentication bug"
+             - Type: task, Priority: 1
+             - Metadata: {"worker_type": "coding", "demo_id": "T1"}
+
+          2. Title: "Research competitor pricing models"
+             - Type: task, Priority: 1
+             - Metadata: {"worker_type": "research", "demo_id": "T2"}
+
+          3. Title: "Add password reset feature"
+             - Type: task, Priority: 1
+             - Metadata: {"worker_type": "coding", "demo_id": "T3"}
+
+          4. Title: "Optimize database queries - will need endpoint priorities"
+             - Type: task, Priority: 1
+             - Metadata: {"worker_type": "coding", "demo_id": "T4", "needs_input": true}
+
+          After creating these, list all issues to confirm they were created.
+
+  # Phase 2: Workers process issues in parallel
+  - name: "Issue Processing"
+    execution_mode: "parallel"
+    tasks:
+      - context_name: "coding_worker_1"
+        profile: "coding-worker"
+        prompt: |
+          You are coding-worker-1, a coding specialist.
+
+          Task: Find and work on coding issues
+
+          1. Use the issue tool to list ready issues (filter: status=open)
+          2. Look for issues where metadata.worker_type == "coding"
+          3. If you find one:
+             - Update it to status=in_progress
+             - Analyze the task
+             - If you need information (e.g., mentions "endpoint priorities"), update status to blocked with blocking_notes explaining what you need
+             - Otherwise, complete your work and close the issue with a brief result
+          4. If no issues available for you, respond with "No work available"
+
+          Work on issues one at a time, iterating until no more coding work is available.
+
+      - context_name: "coding_worker_2"
+        profile: "coding-worker"
+        prompt: |
+          You are coding-worker-2, a coding specialist.
+
+          Task: Find and work on coding issues
+
+          1. Use the issue tool to list ready issues (filter: status=open)
+          2. Look for issues where metadata.worker_type == "coding"
+          3. If you find one:
+             - Update it to status=in_progress
+             - Analyze the task
+             - If you need information (e.g., mentions "endpoint priorities"), update status to blocked with blocking_notes explaining what you need
+             - Otherwise, complete your work and close the issue with a brief result
+          4. If no issues available for you, respond with "No work available"
+
+          Work on issues one at a time, iterating until no more coding work is available.
+
+      - context_name: "research_worker_1"
+        profile: "research-worker"
+        prompt: |
+          You are research-worker-1, a research specialist.
+
+          Task: Find and work on research issues
+
+          1. Use the issue tool to list ready issues (filter: status=open)
+          2. Look for issues where metadata.worker_type == "research"
+          3. If you find one:
+             - Update it to status=in_progress
+             - Analyze the task
+             - Complete your research and close the issue with findings
+          4. If no issues available for you, respond with "No work available"
+
+          Work on issues one at a time, iterating until no more research work is available.
+
+  # Phase 3: Foreman checks for blocked issues and unblocks them
+  - name: "Issue Monitoring and Unblocking"
+    execution_mode: "sequential"
+    tasks:
+      - context_name: "foreman"
+        profile: "foreman"
+        prompt: |
+          Check for blocked issues using the issue tool.
+
+          1. List issues with status=blocked
+          2. For each blocked issue:
+             - Read the blocking_notes
+             - If it asks about "endpoint priorities", update the issue:
+               * Set status back to open
+               * Add to metadata: {"blocking_answer": "/api/users and /api/orders"}
+             - If it asks something else, provide a reasonable answer
+
+          3. After unblocking, list all issues to show current status
+
+          Report what you found and what you did.
+
+  # Phase 4: Final worker pass to handle unblocked issues
+  - name: "Process Unblocked Issues"
+    execution_mode: "parallel"
+    tasks:
+      - context_name: "coding_worker_1"
+        profile: "coding-worker"
+        prompt: |
+          Check for any newly unblocked coding issues and complete them.
+
+          If no work available, just respond with "No remaining work".
+
+      - context_name: "coding_worker_2"
+        profile: "coding-worker"
+        prompt: |
+          Check for any newly unblocked coding issues and complete them.
+
+          If no work available, just respond with "No remaining work".
+
+  # Phase 5: Foreman provides final summary
+  - name: "Summary"
+    execution_mode: "sequential"
+    tasks:
+      - context_name: "foreman"
+        profile: "foreman"
+        prompt: |
+          List all issues with their current status and provide a summary of the work completed.
+
+config:
+  max_context_history: 50
+  continue_on_error: true

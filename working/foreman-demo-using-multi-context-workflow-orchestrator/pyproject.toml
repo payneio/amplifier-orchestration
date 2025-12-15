@@ -1,0 +1,23 @@
+[project]
+name = "amplifier-multi-worker-demo"
+version = "0.1.0"
+description = "Demo of multi-worker orchestration with Amplifier Core"
+requires-python = ">=3.11"
+dependencies = [
+    "amplifier-core",
+    "pydantic>=2.0",
+    "pyyaml>=6.0.3",
+    "networkx>=3.0", # For issue_manager
+    # Module dependencies
+    "anthropic>=0.25.0", # For provider-anthropic
+    "httpx>=0.25.0", # For HTTP requests
+    "aiohttp>=3.9.0", # For tool-web
+    "beautifulsoup4>=4.12.0", # For tool-web (HTML parsing)
+    "ddgs>=9.6.0", # For tool-web (DuckDuckGo search)
+]
+
+[tool.uv.sources]
+amplifier-core = { git = "https://github.com/microsoft/amplifier-core" }
+
+# This is a demo script, not a package
+# Just run: uv run python demo.py

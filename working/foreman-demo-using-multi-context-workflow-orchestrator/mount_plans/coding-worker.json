@@ -1,0 +1,44 @@
+{
+  "session": {
+    "orchestrator": {
+      "module": "loop-streaming",
+      "source": "local",
+      "config": {}
+    },
+    "context": {
+      "module": "context-persistent",
+      "source": "local",
+      "config": {}
+    }
+  },
+  "providers": [
+    {
+      "module": "provider-anthropic",
+      "source": "local",
+      "config": {
+        "default_model": "claude-sonnet-4-5"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "module": "tool-issue",
+      "source": "local",
+      "config": {
+        "data_dir": ".demo-workspace/.amplifier/issues",
+        "auto_create_dir": true,
+        "actor": "coding-worker"
+      }
+    },
+    {
+      "module": "tool-filesystem",
+      "source": "local",
+      "config": {}
+    },
+    {
+      "module": "tool-bash",
+      "source": "local",
+      "config": {}
+    }
+  ]
+}
