@@ -37,13 +37,13 @@ import sys
 from pathlib import Path
 
 
-# Add the foreman-worker orchestrator to path
-orchestrator_path = Path(__file__).parent / "modules" / "amplifier-module-orchestrator-foreman-worker"
+# Add the work coordinator orchestrator to path
+orchestrator_path = Path(__file__).parent / "modules" / "amplifier-module-orchestrator-work-coordinator"
 sys.path.insert(0, str(orchestrator_path))
 
 from amplifier_core import ModuleLoader
-from amplifier_orchestrator_foreman_worker import ForemanWorkerOrchestrator
-from amplifier_orchestrator_foreman_worker import WorkerConfig
+from amplifier_module_orchestrator_work_coordinator import WorkCoordinator
+from amplifier_module_orchestrator_work_coordinator import WorkerConfig
 from demo_stubs import StubApprovalSystem
 from demo_stubs import StubDisplaySystem
 
@@ -83,7 +83,7 @@ for logger_name in [
     "amplifier_module_tool_filesystem",
     "amplifier_module_tool_bash",
     "amplifier_module_tool_issue",
-    "amplifier_orchestrator_foreman_worker",
+    "amplifier_module_orchestrator_work_coordinator",
 ]:
     logging.getLogger(logger_name).setLevel(logging.WARNING)
 
@@ -165,7 +165,7 @@ async def interactive_demo():
     coding_worker_config = load_mount_plan(mount_plans_dir, "coding-worker")
     research_worker_config = load_mount_plan(mount_plans_dir, "research-worker")
 
-    async with ForemanWorkerOrchestrator(
+    async with WorkCoordinator(
         loader=loader,
         foreman_config=foreman_config,
         worker_configs=[
