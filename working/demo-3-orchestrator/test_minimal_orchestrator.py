@@ -29,15 +29,20 @@ async def test():
 
     loader = ModuleLoader(search_paths=[modules_dir])
     workspace = Path.cwd() / ".demo-workspace"
+    if workspace.exists():
+        import shutil
+
+        shutil.rmtree(workspace)
     workspace.mkdir(exist_ok=True)
 
     # Step 1: Foreman creates issue
     print("\nStep 1: Creating issue with foreman...")
     foreman_config = load_mount_plan("foreman")
     async with AmplifierSession(foreman_config, loader=loader) as session:
+        foreman_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"   Foreman session_id: {foreman_session_id}")
         await session.execute(
-            "Create ONE test issue: title='Test task', "
-            "issue_type='task', priority=1, metadata={'category': 'coding'}"
+            "Create ONE test issue: title='Test task', issue_type='task', priority=1, metadata={'category': 'coding'}"
         )
     print("✓ Issue created")
 
@@ -46,6 +51,8 @@ async def test():
     worker_config = load_mount_plan("coding-worker")
 
     async with AmplifierSession(worker_config, loader=loader) as session:
+        worker_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"   Worker session_id: {worker_session_id}")
         # Just send the prompt directly, NO system instructions
         prompt = """You are test-worker, a coding specialist.
 

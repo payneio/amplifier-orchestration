@@ -61,6 +61,8 @@ async def foreman_create_issues(loader: ModuleLoader):
     config = load_mount_plan("foreman")
 
     async with AmplifierSession(config, loader=loader) as session:
+        foreman_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"   Foreman session_id: {foreman_session_id}")
         prompt = """Create 4 demo issues using the issue tool:
 
 1. Title: "Fix login authentication bug"
@@ -93,6 +95,8 @@ async def worker_process_work(worker_id: str, worker_type: str, loader: ModuleLo
     config = load_mount_plan(f"{worker_type}-worker")
 
     async with AmplifierSession(config, loader=loader) as session:
+        worker_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"   {worker_id} session_id: {worker_session_id}", flush=True)
         for iteration in range(3):
             print(f"\n{Color.YELLOW}{worker_id}: Iteration {iteration + 1}{Color.ENDC}")
 
@@ -134,6 +138,8 @@ async def foreman_check_blocked(loader: ModuleLoader):
     config = load_mount_plan("foreman")
 
     async with AmplifierSession(config, loader=loader) as session:
+        foreman_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"   Foreman (blocked check) session_id: {foreman_session_id}")
         for check_num in range(3):
             await asyncio.sleep(5)
 

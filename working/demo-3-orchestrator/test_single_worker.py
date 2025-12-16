@@ -63,6 +63,8 @@ async def test_worker():
     foreman_config = load_mount_plan("foreman")
 
     async with AmplifierSession(foreman_config, loader=loader) as session:
+        foreman_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"   Foreman session_id: {foreman_session_id}")
         result = await session.execute(
             "Create ONE test issue: title='Test coding task', "
             "issue_type='task', priority=1, "
@@ -75,7 +77,8 @@ async def test_worker():
     worker_config = load_mount_plan("coding-worker")
 
     async with AmplifierSession(worker_config, loader=loader) as session:
-        print("✓ Worker session created\n")
+        worker_session_id = getattr(session, 'session_id', 'unknown')
+        print(f"✓ Worker session created (session_id: {worker_session_id})\n")
 
         for iteration in range(3):
             print(f"--- Iteration {iteration + 1} ---")

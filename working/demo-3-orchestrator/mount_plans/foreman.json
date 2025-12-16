@@ -16,7 +16,9 @@
       "module": "provider-anthropic",
       "source": "local",
       "config": {
-        "default_model": "claude-sonnet-4-5"
+        "default_model": "claude-sonnet-4-5",
+        "debug": true,
+        "raw_debug": true
       }
     }
   ],
@@ -28,6 +30,15 @@
         "data_dir": ".demo-workspace/.amplifier/issues",
         "auto_create_dir": true,
         "actor": "foreman"
+      }
+    }
+  ],
+  "hooks": [
+    {
+      "module": "hooks-logging",
+      "source": "local",
+      "config": {
+        "auto_discover": true
       }
     }
   ]

@@ -64,6 +64,7 @@ class ForemanWorkerOrchestrator:
         # Runtime state (initialized lazily)
         self.foreman_session: AmplifierSession | None = None
         self.worker_tasks: list[asyncio.Task] = []
+        self.worker_session_ids: dict[str, str] = {}  # worker_id -> session_id
         self._shutdown_event = asyncio.Event()
         self._initialized = False
 
@@ -184,7 +185,15 @@ class ForemanWorkerOrchestrator:
             "IMPORTANT - Issue Status Values:\n"
             "- 'open': Unassigned work waiting for workers\n"
             "- 'in_progress': Currently being worked on\n"
+            "- 'pending_user_input': Worker needs information from the user (YOU must ask!)\n"
+            "- 'blocked': Blocked by another task dependency\n"
             "- 'closed': Completed work (when users ask about 'completed' issues, use status='closed')\n\n"
+            "CRITICAL - USER INPUT WORKFLOW:\n"
+            "When checking status, ALWAYS look for 'pending_user_input' issues!\n"
+            "- Workers mark tasks 'pending_user_input' when they need info from the user\n"
+            "- The blocking_notes field explains what information is needed\n"
+            "- YOU must ask the user for that info, then update the issue back to 'open'\n"
+            "- Include the user's info in the issue description or blocking_notes\n\n"
             "When creating issues:\n"
             "- For CODING tasks (bugs, features, implementation): Add metadata={'category': 'coding'}\n"
             "- For RESEARCH tasks (analysis, user research, investigation): Add metadata={'category': 'research'}\n\n"
@@ -192,6 +201,7 @@ class ForemanWorkerOrchestrator:
             "so workers can find their work!\n\n"
             "Use tools proactively to:\n"
             "- Create issues for work delegation\n"
+            "- Check for 'pending_user_input' issues and ask user for needed info\n"
             "- Check issue status (remember: completed work has status='closed')\n"
             "- Review completed work\n\n"
             "Review completed work and respond to user requests."
@@ -247,8 +257,19 @@ class ForemanWorkerOrchestrator:
             # Determine worker category from profile
             worker_category = "coding" if "coding" in profile else "research" if "research" in profile else "general"
 
-            # Create worker session
-            async with AmplifierSession(config, loader=self.loader) as session:
+            # Create worker session with foreman as parent
+            foreman_session_id = self.foreman_session.session_id if self.foreman_session else None
+            async with AmplifierSession(
+                config,
+                loader=self.loader,
+                parent_id=foreman_session_id,
+                approval_system=self.approval_system,
+                display_system=self.display_system,
+            ) as session:
+                # Track worker session ID
+                self.worker_session_ids[worker_id] = session.session_id
+                logger.info(f"Worker {worker_id} session: {session.session_id}")
+
                 # Inject system instructions directly into context manager
                 context = session.coordinator.get("context")
                 if not context:
@@ -277,12 +298,18 @@ class ForemanWorkerOrchestrator:
                     "   → Use read_file, write_file, edit_file, bash as needed\n"
                     "   → Create files in 'work/' directory\n"
                     "   → Actually implement what the issue describes\n\n"
-                    "STEP 5: Close the issue\n"
+                    "STEP 5A: If the issue REQUIRES user-provided info (schema, credentials, specifics):\n"
+                    "   → DO NOT make up or invent the required information!\n"
+                    "   → issue_manager operation='update' issue_id=<id> status='pending_user_input'\n"
+                    "     blocking_notes='Need from user: <describe exactly what info you need>'\n"
+                    "   → The foreman will ask the user and reopen the issue when info is provided\n"
+                    "   → Respond: 'Waiting for user input on <issue title>'\n\n"
+                    "STEP 5B: If work is COMPLETE (all requirements satisfied):\n"
                     "   → issue_manager operation='close' issue_id=<id> reason='Work completed'\n\n"
                     f"STEP 6: If NO {worker_category} issues found in step 1\n"
                     "   → Respond EXACTLY: 'no work'\n\n"
                     "EXECUTION RULES:\n"
-                    "- Execute ALL 5 steps in sequence during THIS turn\n"
+                    "- Execute ALL steps in sequence during THIS turn\n"
                     "- Use multiple tool calls as needed - don't stop early\n"
                     "- Only respond with text AFTER completing work OR if no work found\n"
                     "- If you find work, you MUST complete it before responding\n\n"
@@ -290,7 +317,8 @@ class ForemanWorkerOrchestrator:
                     "- DO NOT respond with just the list of issues\n"
                     "- DO NOT explain what you're about to do\n"
                     "- DO NOT wait for confirmation before claiming/completing work\n"
-                    "- DO NOT stop after any single step - complete the entire workflow"
+                    "- DO NOT stop after any single step - complete the entire workflow\n"
+                    "- DO NOT invent or make up user-specific info (schemas, credentials, configs)"
                 )
                 # NOTE: Removed .format() call - string already uses f-strings for all variables
 

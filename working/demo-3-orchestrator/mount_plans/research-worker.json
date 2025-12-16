@@ -16,7 +16,9 @@
       "module": "provider-anthropic",
       "source": "local",
       "config": {
-        "default_model": "claude-sonnet-4-5"
+        "default_model": "claude-sonnet-4-5",
+        "debug": true,
+        "raw_debug": true
       }
     }
   ],
@@ -34,6 +36,15 @@
       "module": "tool-filesystem",
       "source": "local",
       "config": {}
+    }
+  ],
+  "hooks": [
+    {
+      "module": "hooks-logging",
+      "source": "local",
+      "config": {
+        "auto_discover": true
+      }
     }
   ]
 }

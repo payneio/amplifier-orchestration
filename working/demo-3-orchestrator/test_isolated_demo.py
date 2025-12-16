@@ -65,7 +65,9 @@ async def test_isolated_demo():
         approval_system=StubApprovalSystem(),
         display_system=StubDisplaySystem(),
     ) as orch:
+        foreman_session_id = getattr(orch.foreman_session, 'session_id', 'unknown') if orch.foreman_session else 'not initialized'
         print("2. Orchestrator initialized")
+        print(f"   Foreman session_id: {foreman_session_id}")
         print(f"   Worker tasks: {len(orch.worker_tasks)}")
         print(f"   Tasks running: {[t.get_name() for t in orch.worker_tasks if not t.done()]}")
         print()

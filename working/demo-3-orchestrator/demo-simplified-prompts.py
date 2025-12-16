@@ -81,6 +81,7 @@ class SimpleForemanWorkerOrchestrator:
             display_system=self.display_system,
         )
         await self.foreman_session.__aenter__()
+        self.foreman_session_id = getattr(self.foreman_session, 'session_id', 'unknown')
 
         # Start workers
         self.worker_tasks = [
@@ -129,7 +130,10 @@ class SimpleForemanWorkerOrchestrator:
         try:
             worker_config = load_mount_plan("coding-worker" if category == "coding" else "research-worker")
 
-            async with AmplifierSession(worker_config, loader=self.loader) as session:
+            async with AmplifierSession(worker_config, loader=self.loader, parent_id=self.foreman_session_id) as session:
+                worker_session_id = getattr(session, 'session_id', 'unknown')
+                print(f"{Color.CYAN}[{worker_id}] Started (session_id: {worker_session_id}){Color.ENDC}", flush=True)
+
                 # NO SYSTEM INSTRUCTIONS - This was the bug!
                 # Just send clean prompts directly
 
@@ -202,7 +206,7 @@ async def interactive_demo():
         display_system=StubDisplaySystem(),
     ) as orchestrator:
         print(f"{Color.GREEN}✓ Orchestrator initialized{Color.ENDC}")
-        print("   Foreman: foreman")
+        print(f"   Foreman: foreman (session_id: {orchestrator.foreman_session_id})")
         print("   Workers: 2x coding, 1x research")
         print(f"   Workspace: {workspace}\n")
 
@@ -211,6 +215,10 @@ async def interactive_demo():
         print(f"{Color.CYAN}  ✓ Metadata filtering (direct category queries){Color.ENDC}")
         print(f"{Color.CYAN}  ✓ NO system instructions (clean prompts only){Color.ENDC}")
         print(f"{Color.CYAN}  ✓ Proper string formatting (no conflicts){Color.ENDC}\n")
+
+        # Give workers time to initialize and print their session IDs
+        print(f"{Color.YELLOW}[Waiting 3s for workers to initialize...]{Color.ENDC}\n", flush=True)
+        await asyncio.sleep(3)
 
         print("=" * 70)
 

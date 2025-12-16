@@ -6,6 +6,27 @@ Demonstrates the specialized Foreman-Worker Orchestrator where:
 - Workers run continuously in background
 - No workflow YAML needed - pattern is hardcoded
 - Much simpler than generic workflow orchestrator
+
+KEY DEMO FLOW - User Input Orchestration:
+=========================================
+This demo specifically showcases how the foreman coordinates getting user input:
+
+1. Foreman creates tasks for workers
+2. Worker starts a task, discovers it needs more info (e.g., database schema)
+3. Worker marks task as "pending_user_input" with notes about what's needed
+4. Foreman notices the pending task and asks user for the missing info
+5. User provides info, foreman updates the task and marks it "open" again
+6. Worker picks up the unblocked task and completes it
+
+This demonstrates foreman as the coordinator between autonomous workers and
+human users - workers don't talk to users directly, foreman mediates.
+
+Status values:
+- open: Available for workers to claim
+- in_progress: Worker is actively working on it
+- pending_user_input: Worker needs info from user (foreman should ask)
+- blocked: Blocked by dependency (another task)
+- closed: Completed
 """
 
 import asyncio
@@ -36,7 +57,23 @@ class Color:
     BOLD = "\033[1m"
 
 
-logging.basicConfig(level=logging.ERROR, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+# Suppress noisy loggers - only show warnings and errors
+for logger_name in [
+    "httpcore",
+    "httpx",
+    "anthropic",
+    "amplifier_core",
+    "amplifier_module_loop_streaming",
+    "amplifier_module_context_persistent",
+    "amplifier_module_provider_anthropic",
+    "amplifier_module_tool_filesystem",
+    "amplifier_module_tool_bash",
+    "amplifier_module_tool_issue",
+    "amplifier_orchestrator_foreman_worker",
+]:
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 # Delete the .demo-workspace if it exists from prior runs
 workspace_dir = Path.cwd() / ".demo-workspace"
@@ -114,40 +151,55 @@ async def interactive_demo():
         foreman_profile="foreman",
         worker_configs=[
             WorkerConfig(profile="coding-worker", count=2),
-            WorkerConfig(profile="research-worker", count=1),
+            WorkerConfig(profile="research-worker", count=2),  # 2 research workers for 2 research tasks
         ],
         workspace_root=workspace,
         approval_system=approval_system,
         display_system=display_system,
     ) as orchestrator:
-        print(f"{Color.GREEN}✓ Orchestrator initialized{Color.ENDC}")
-        print("   Foreman: foreman")
-        print("   Workers: 2x coding-worker, 1x research-worker")
-        print(f"   Workspace: {workspace}\n")
+        print(f"{Color.GREEN}✓ Orchestrator created{Color.ENDC}")
+        print("   Workers: 2x coding-worker, 2x research-worker")
+        print(f"   Workspace: {workspace}")
+        print(f"   (Session IDs will be shown after first message initializes sessions)\n")
 
         print(f"{Color.BOLD}Starting interactive demo...{Color.ENDC}\n")
         print("=" * 70)
 
         # Simulated user interactions
+        # NOTE: This demo showcases the "pending_user_input" workflow:
+        # - Worker starts "session management" task
+        # - Worker discovers it needs database schema from user
+        # - Worker marks task as "pending_user_input" with blocking_notes
+        # - Foreman notices and asks user for the schema
+        # - User provides schema, foreman updates task back to "open"
+        # - Worker completes the task
         user_interactions = [
             {
-                "message": "Create 4 demo issues: 2 coding tasks (fix auth, add password reset), 2 research tasks (competitor analysis, user research)",
+                "message": (
+                    "Create 4 demo issues:\n"
+                    "1. CODING: Fix auth bug - the login endpoint returns 500 errors\n"
+                    "2. CODING: Implement session management - IMPORTANT: This task REQUIRES the user's "
+                    "actual database schema before any work can begin. The worker MUST mark this as "
+                    "pending_user_input and request the exact table structure. DO NOT make up a schema.\n"
+                    "3. RESEARCH: Competitor analysis - analyze 3 competitors\n"
+                    "4. RESEARCH: User research - identify target user personas"
+                ),
                 "description": "User asks foreman to create initial work queue",
             },
             {
-                "message": "What's the current status? How many issues are open, in progress, and completed?",
-                "description": "User checks on worker progress",
-                "wait_before": 30,  # Let workers complete multiple workflow cycles
+                "message": "What's the current status? Are any tasks waiting for input from me?",
+                "description": "User checks on worker progress - foreman should notice pending_user_input",
+                "wait_before": 30,  # Let workers claim tasks - session mgmt worker should request schema
             },
             {
-                "message": "One task needs database schema. Here's the schema: users table (id, email, password_hash), sessions table (id, user_id, token, expires_at)",
-                "description": "User unblocks a task that needs information",
-                "wait_before": 20,
+                "message": "Here's the database schema: users table (id, email, password_hash), sessions table (id, user_id, token, expires_at)",
+                "description": "User provides the schema info that was requested",
+                "wait_before": 10,  # Short wait since foreman already asked
             },
             {
                 "message": "Give me a final summary of all work completed",
                 "description": "User requests final status",
-                "wait_before": 20,
+                "wait_before": 60,  # Workers need time to finish all 4 tasks
             },
         ]
 
@@ -175,15 +227,46 @@ async def interactive_demo():
 
                 print(f"{Color.GREEN}Foreman:{Color.ENDC} {response}\n")
 
+                # Print session IDs after first interaction (when everything is initialized)
+                if i == 0:
+                    print(f"{Color.BLUE}{'=' * 70}{Color.ENDC}")
+                    print(f"{Color.BLUE}SESSION IDs:{Color.ENDC}")
+                    print(f"   Foreman: {orchestrator.foreman_session.session_id}")
+                    # Workers may take a moment to initialize, print what we have
+                    await asyncio.sleep(2)  # Brief wait for workers to start
+                    for worker_id, session_id in orchestrator.worker_session_ids.items():
+                        print(f"   {worker_id}: {session_id}")
+                    print(f"{Color.BLUE}{'=' * 70}{Color.ENDC}\n")
+
             except Exception as e:
                 print(f"{Color.RED}Error: {e}{Color.ENDC}\n")
                 import traceback
 
                 traceback.print_exc()
 
-        # Final wait to let workers finish
-        print(f"\n{Color.YELLOW}[Waiting 30s for workers to finish remaining work...]{Color.ENDC}\n")
-        await asyncio.sleep(30)
+        # Poll for completion instead of fixed wait
+        print(f"\n{Color.YELLOW}[Polling for task completion...]{Color.ENDC}")
+        max_wait = 120  # Maximum 2 minutes
+        poll_interval = 10  # Check every 10 seconds
+        waited = 0
+
+        while waited < max_wait:
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+
+            # Ask foreman for status
+            status_response = await orchestrator.execute_user_message(
+                "How many tasks are still open or in_progress? Reply with just the count."
+            )
+
+            print(f"{Color.CYAN}[{waited}s] Status check: {status_response[:100]}...{Color.ENDC}")
+
+            # Check if all complete (look for "0" in response)
+            if "0" in status_response and ("complete" in status_response.lower() or "closed" in status_response.lower() or "all" in status_response.lower()):
+                print(f"{Color.GREEN}All tasks complete!{Color.ENDC}")
+                break
+        else:
+            print(f"{Color.YELLOW}Max wait time reached. Some tasks may still be in progress.{Color.ENDC}")
 
         print("=" * 70)
         print(f"\n{Color.GREEN}{Color.BOLD}Demo complete!{Color.ENDC}")
