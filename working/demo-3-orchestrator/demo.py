@@ -11,12 +11,12 @@ KEY DEMO FLOW - User Input Orchestration:
 =========================================
 This demo specifically showcases how the foreman coordinates getting user input:
 
-1. Foreman creates tasks for workers
-2. Worker starts a task, discovers it needs more info (e.g., database schema)
+1. Foreman creates tasks for workers (3 can be done independently, 1 needs user info)
+2. Worker starts the database migration task, discovers it needs the schema
 3. Worker marks task as "pending_user_input" with notes about what's needed
 4. Foreman notices the pending task and asks user for the missing info
-5. User provides info, foreman updates the task and marks it "open" again
-6. Worker picks up the unblocked task and completes it
+5. User provides schema, foreman updates the task and marks it "open" again
+6. Worker picks up the unblocked task and completes the migration script
 
 This demonstrates foreman as the coordinator between autonomous workers and
 human users - workers don't talk to users directly, foreman mediates.
@@ -186,29 +186,32 @@ async def interactive_demo():
 
         # Simulated user interactions
         # NOTE: This demo showcases the "pending_user_input" workflow:
-        # - Worker starts "session management" task
+        # - Worker starts "database migration" task
         # - Worker discovers it needs database schema from user
         # - Worker marks task as "pending_user_input" with blocking_notes
         # - Foreman notices and asks user for the schema
         # - User provides schema, foreman updates task back to "open"
-        # - Worker completes the task
+        # - Worker completes the migration script
         user_interactions = [
             {
                 "message": (
                     "Create 4 demo issues:\n"
-                    "1. CODING: Fix auth bug - the login endpoint returns 500 errors\n"
-                    "2. CODING: Implement session management - IMPORTANT: This task REQUIRES the user's "
+                    "1. CODING: Write a Python function that validates email addresses using regex. "
+                    "Save it to work/email_validator.py with docstrings and example usage.\n"
+                    "2. CODING: Create a database migration script - IMPORTANT: This task REQUIRES the user's "
                     "actual database schema before any work can begin. The worker MUST mark this as "
                     "pending_user_input and request the exact table structure. DO NOT make up a schema.\n"
-                    "3. RESEARCH: Competitor analysis - analyze 3 competitors\n"
-                    "4. RESEARCH: User research - identify target user personas"
+                    "3. RESEARCH: Competitor analysis for a cloud-based project management SaaS - analyze Asana, Monday.com, "
+                    "and Notion. Focus on pricing tiers, key features, and target audiences. Save findings to work/competitors.md.\n"
+                    "4. RESEARCH: User personas for a productivity app targeting remote software development teams. "
+                    "Identify 3 key personas: developer, team lead, and project manager. Save to work/personas.md."
                 ),
                 "description": "User asks foreman to create initial work queue",
             },
             {
                 "message": "What's the current status? Are any tasks waiting for input from me?",
                 "description": "User checks on worker progress - foreman should notice pending_user_input",
-                "wait_before": 30,  # Let workers claim tasks - session mgmt worker should request schema
+                "wait_before": 30,  # Let workers claim tasks - migration worker should request schema
             },
             {
                 "message": "Here's the database schema: users table (id, email, password_hash), sessions table (id, user_id, token, expires_at)",
