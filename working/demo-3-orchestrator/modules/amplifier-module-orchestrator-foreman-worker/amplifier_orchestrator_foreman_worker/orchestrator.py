@@ -9,7 +9,6 @@ from amplifier_core import AmplifierSession
 from amplifier_core import ModuleLoader
 
 from .config import WorkerConfig
-from .config import load_mount_plan
 
 logger = logging.getLogger(__name__)
 
@@ -22,20 +21,18 @@ class ForemanWorkerOrchestrator:
 
     Args:
         loader: Module loader for Amplifier components
-        mount_plans_dir: Directory containing mount plan JSON files
-        foreman_profile: Name of foreman mount plan
-        worker_configs: List of worker configurations
+        foreman_config: Mount plan configuration for the foreman
+        worker_configs: List of worker configurations (name, config, count)
         workspace_root: Root directory for workspace operations
 
     Example:
         >>> workers = [
-        ...     WorkerConfig(profile="coding-worker", count=2),
-        ...     WorkerConfig(profile="research-worker", count=1),
+        ...     WorkerConfig(name="coding-worker", config=coding_config, count=2),
+        ...     WorkerConfig(name="research-worker", config=research_config, count=1),
         ... ]
         >>> async with ForemanWorkerOrchestrator(
         ...     loader=loader,
-        ...     mount_plans_dir=Path("registry/profiles"),
-        ...     foreman_profile="foreman-profile",
+        ...     foreman_config=foreman_config,
         ...     worker_configs=workers,
         ...     workspace_root=Path("workspace")
         ... ) as orchestrator:
@@ -46,16 +43,14 @@ class ForemanWorkerOrchestrator:
     def __init__(
         self,
         loader: ModuleLoader,
-        mount_plans_dir: Path,
-        foreman_profile: str,
+        foreman_config: dict,
         worker_configs: list[WorkerConfig],
         workspace_root: Path,
         approval_system: Any = None,
         display_system: Any = None,
     ):
         self.loader = loader
-        self.mount_plans_dir = mount_plans_dir
-        self.foreman_profile = foreman_profile
+        self.foreman_config = foreman_config
         self.worker_configs = worker_configs
         self.workspace_root = workspace_root
         self.approval_system = approval_system
@@ -160,12 +155,9 @@ class ForemanWorkerOrchestrator:
         """Initialize foreman and workers."""
         logger.info("Initializing foreman-worker orchestrator")
 
-        # Load and configure foreman
-        foreman_config = load_mount_plan(self.mount_plans_dir, self.foreman_profile)
-
         # Create foreman session
         self.foreman_session = AmplifierSession(
-            config=foreman_config,
+            config=self.foreman_config,
             loader=self.loader,
             approval_system=self.approval_system,
             display_system=self.display_system,
@@ -190,18 +182,26 @@ class ForemanWorkerOrchestrator:
             "- 'closed': Completed work (when users ask about 'completed' issues, use status='closed')\n\n"
             "CRITICAL - USER INPUT WORKFLOW:\n"
             "When checking status, ALWAYS look for 'pending_user_input' issues!\n"
-            "- Workers mark tasks 'pending_user_input' when they need info from the user\n"
+            "- Workers use 'request_user_input' operation when they need info from the user\n"
             "- The blocking_notes field explains what information is needed\n"
-            "- YOU must ask the user for that info, then update the issue back to 'open'\n"
-            "- Include the user's info in the issue description or blocking_notes\n\n"
+            "- YOU must ask the user for that info\n"
+            "- When user provides info, use 'unblock' operation:\n"
+            "  issue_manager operation='unblock' issue_id=<id> info='<user provided info>'\n"
+            "- This sets status back to 'open' so workers can continue\n\n"
             "When creating issues:\n"
-            "- For CODING tasks (bugs, features, implementation): Add metadata={'category': 'coding'}\n"
-            "- For RESEARCH tasks (analysis, user research, investigation): Add metadata={'category': 'research'}\n\n"
-            "CRITICAL: Every issue MUST have metadata.category set to either 'coding' or 'research' "
-            "so workers can find their work!\n\n"
+            "- issue_type MUST be one of: 'bug', 'feature', 'task', 'epic', 'chore'\n"
+            "- For CODING tasks: use issue_type='bug' or 'feature', AND metadata={'category': 'coding'}\n"
+            "- For RESEARCH tasks: use issue_type='task', AND metadata={'category': 'research'}\n\n"
+            "CRITICAL: Every issue MUST have:\n"
+            "1. A valid issue_type (bug/feature/task/epic/chore)\n"
+            "2. metadata.category set to 'coding' or 'research' so workers can find their work!\n\n"
+            "SEMANTIC OPERATIONS (preferred - use these!):\n"
+            "- unblock: Resume an issue after user provides info\n"
+            "- complete: Finish work on an issue (closes it)\n\n"
             "Use tools proactively to:\n"
             "- Create issues for work delegation\n"
             "- Check for 'pending_user_input' issues and ask user for needed info\n"
+            "- Use 'unblock' when user provides the requested info\n"
             "- Check issue status (remember: completed work has status='closed')\n"
             "- Review completed work\n\n"
             "Review completed work and respond to user requests."
@@ -222,14 +222,14 @@ class ForemanWorkerOrchestrator:
         worker_id_counter = 0
 
         for worker_config in self.worker_configs:
-            logger.info(f"Processing worker_config: {worker_config.profile}, count={worker_config.count}")
+            logger.info(f"Processing worker_config: {worker_config.name}, count={worker_config.count}")
             for _ in range(worker_config.count):
-                worker_id = f"{worker_config.profile}-{worker_id_counter}"
+                worker_id = f"{worker_config.name}-{worker_id_counter}"
                 worker_id_counter += 1
                 logger.info(f"Creating task for worker: {worker_id}")
 
                 task = asyncio.create_task(
-                    self._worker_loop(worker_id, worker_config.profile),
+                    self._worker_loop(worker_id, worker_config.name, worker_config.config),
                     name=worker_id,
                 )
                 self.worker_tasks.append(task)
@@ -237,7 +237,7 @@ class ForemanWorkerOrchestrator:
 
         logger.info(f"Started {len(self.worker_tasks)} workers - tasks created")
 
-    async def _worker_loop(self, worker_id: str, profile: str):
+    async def _worker_loop(self, worker_id: str, worker_name: str, config: dict):
         """Worker continuous processing loop.
 
         Workers claim tasks and complete them in an infinite loop
@@ -245,17 +245,13 @@ class ForemanWorkerOrchestrator:
 
         Args:
             worker_id: Unique identifier for this worker
-            profile: Mount plan profile name
+            worker_name: Worker type name (e.g., "coding-worker")
+            config: Mount plan configuration dictionary
         """
         logger.info(f"_worker_loop() ENTERED for {worker_id}")
         try:
-            logger.info(f"{worker_id}: Loading mount plan from {self.mount_plans_dir}/{profile}")
-            # Load worker configuration
-            config = load_mount_plan(self.mount_plans_dir, profile)
-            logger.info(f"{worker_id}: Mount plan loaded successfully")
-
-            # Determine worker category from profile
-            worker_category = "coding" if "coding" in profile else "research" if "research" in profile else "general"
+            # Determine worker category from name
+            worker_category = "coding" if "coding" in worker_name else "research" if "research" in worker_name else "general"
 
             # Create worker session with foreman as parent
             foreman_session_id = self.foreman_session.session_id if self.foreman_session else None
@@ -292,22 +288,27 @@ class ForemanWorkerOrchestrator:
                     f"   → issue_manager operation='list' status='open' metadata={{{{'category': '{worker_category}'}}}}\n\n"
                     f"STEP 2: If you got issues from step 1, pick one\n"
                     f"   → You've already filtered by category, so any issue returned is YOUR work\n\n"
-                    f"STEP 3: Claim the issue\n"
-                    f"   → issue_manager operation='update' issue_id=<id> status='in_progress' assignee='{worker_id}'\n\n"
+                    f"STEP 3: Claim the issue (use semantic operation)\n"
+                    f"   → issue_manager operation='claim' issue_id=<id> assignee='{worker_id}'\n\n"
                     "STEP 4: Do the work\n"
                     "   → Use read_file, write_file, edit_file, bash as needed\n"
                     "   → Create files in 'work/' directory\n"
                     "   → Actually implement what the issue describes\n\n"
-                    "STEP 5A: If the issue REQUIRES user-provided info (schema, credentials, specifics):\n"
+                    "STEP 5A: If the issue REQUIRES information from the user:\n"
                     "   → DO NOT make up or invent the required information!\n"
-                    "   → issue_manager operation='update' issue_id=<id> status='pending_user_input'\n"
-                    "     blocking_notes='Need from user: <describe exactly what info you need>'\n"
-                    "   → The foreman will ask the user and reopen the issue when info is provided\n"
+                    "   → Use the request_user_input operation:\n"
+                    f"     issue_manager operation='request_user_input' issue_id=<id> reason='<what you need>'\n"
+                    "   → The foreman will ask the user and unblock the issue when info is provided\n"
                     "   → Respond: 'Waiting for user input on <issue title>'\n\n"
                     "STEP 5B: If work is COMPLETE (all requirements satisfied):\n"
-                    "   → issue_manager operation='close' issue_id=<id> reason='Work completed'\n\n"
+                    "   → issue_manager operation='complete' issue_id=<id> reason='Work completed'\n\n"
                     f"STEP 6: If NO {worker_category} issues found in step 1\n"
                     "   → Respond EXACTLY: 'no work'\n\n"
+                    "SEMANTIC OPERATIONS (preferred - use these!):\n"
+                    "- claim: Start working on an issue (sets in_progress + assignee)\n"
+                    "- request_user_input: Ask user for info (sets pending_user_input)\n"
+                    "- complete: Finish work on an issue (closes it)\n"
+                    "- release: Stop working, put back in queue (if needed)\n\n"
                     "EXECUTION RULES:\n"
                     "- Execute ALL steps in sequence during THIS turn\n"
                     "- Use multiple tool calls as needed - don't stop early\n"
@@ -318,7 +319,7 @@ class ForemanWorkerOrchestrator:
                     "- DO NOT explain what you're about to do\n"
                     "- DO NOT wait for confirmation before claiming/completing work\n"
                     "- DO NOT stop after any single step - complete the entire workflow\n"
-                    "- DO NOT invent or make up user-specific info (schemas, credentials, configs)"
+                    "- DO NOT invent or make up information that the user should provide"
                 )
                 # NOTE: Removed .format() call - string already uses f-strings for all variables
 
@@ -334,17 +335,18 @@ class ForemanWorkerOrchestrator:
 
 Task: Find and work on one issue
 
-1. Use the issue tool to list YOUR issues directly with metadata filtering:
+1. List YOUR issues:
    issue_manager operation='list' status='open' metadata={{'category': '{worker_category}'}}
-2. If you find one:
-   - Update it to status=in_progress, assignee='{worker_id}'
-   - Analyze the task
-   - Complete your work and close the issue with a brief result
-3. If no issues available for you, respond with "No work available"
 
-Process ONE issue then stop.
+2. If you find one, use SEMANTIC OPERATIONS:
+   - CLAIM it: issue_manager operation='claim' issue_id=<id> assignee='{worker_id}'
+   - Do the work (read_file, write_file, etc.)
+   - IF you need user info: issue_manager operation='request_user_input' issue_id=<id> reason='<what you need>'
+   - IF work complete: issue_manager operation='complete' issue_id=<id> reason='Done'
 
-IMPORTANT: Use the metadata filter in step 1 to get only {worker_category} issues directly."""
+3. If no issues available, respond with "No work available"
+
+Process ONE issue then stop."""
 
                         result = await session.execute(prompt)
 

@@ -13,33 +13,35 @@ class TestInvalidConfiguration:
     """Test handling of invalid configurations."""
 
     @pytest.mark.asyncio
-    async def test_invalid_foreman_mount_plan(self, mock_loader: MagicMock, tmp_path: Path, workspace_dir: Path):
-        """Test error when foreman mount plan doesn't exist."""
-        mount_plans_dir = tmp_path / "invalid_plans"
-        mount_plans_dir.mkdir()
-
+    async def test_invalid_foreman_mount_plan(
+        self, mock_loader: MagicMock, workspace_dir: Path
+    ):
+        """Test error when foreman config causes AmplifierSession to fail."""
+        # With the new design, config is passed directly, so invalid config
+        # manifests as AmplifierSession initialization failure
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=mount_plans_dir,
-            foreman_profile="nonexistent",
+            foreman_config={"invalid": "config"},
             worker_configs=[],
             workspace_root=workspace_dir,
         )
 
-        with pytest.raises(FileNotFoundError, match="Mount plan not found"):
-            await orchestrator.execute_user_message("Test")
+        with patch("amplifier_orchestrator_foreman_worker.orchestrator.AmplifierSession") as mock_session_class:
+            mock_session_class.side_effect = ValueError("Invalid configuration")
+
+            with pytest.raises(ValueError, match="Invalid configuration"):
+                await orchestrator.execute_user_message("Test")
 
     @pytest.mark.asyncio
     async def test_invalid_worker_mount_plan(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
-        """Test error when worker mount plan doesn't exist."""
-        worker_configs = [WorkerConfig(profile="nonexistent-worker", count=1)]
+        """Test error when worker config causes session to fail."""
+        worker_configs = [WorkerConfig(name="bad-worker", config={"invalid": "config"}, count=1)]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -69,13 +71,12 @@ class TestInvalidConfiguration:
 
     @pytest.mark.asyncio
     async def test_missing_context_manager_in_foreman(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test error when foreman session has no context manager."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -99,13 +100,12 @@ class TestConcurrentOperations:
 
     @pytest.mark.asyncio
     async def test_concurrent_foreman_messages(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test handling multiple concurrent foreman messages."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -144,13 +144,12 @@ class TestConcurrentOperations:
 
     @pytest.mark.asyncio
     async def test_shutdown_during_message_execution(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test shutdown while foreman is processing a message."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -196,15 +195,14 @@ class TestWorkerErrorHandling:
 
     @pytest.mark.asyncio
     async def test_worker_error_doesnt_crash_orchestrator(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
     ):
         """Test worker errors don't crash the orchestrator."""
-        worker_configs = [WorkerConfig(profile="coding-worker", count=1)]
+        worker_configs = [WorkerConfig(name="coding-worker", config=coding_worker_config, count=1)]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -266,15 +264,14 @@ class TestWorkerErrorHandling:
 
     @pytest.mark.asyncio
     async def test_worker_continues_after_no_work(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
     ):
         """Test worker continues polling after finding no work."""
-        worker_configs = [WorkerConfig(profile="coding-worker", count=1)]
+        worker_configs = [WorkerConfig(name="coding-worker", config=coding_worker_config, count=1)]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -324,12 +321,11 @@ class TestEmptyConfigurations:
     """Test handling of empty or minimal configurations."""
 
     @pytest.mark.asyncio
-    async def test_zero_workers(self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path):
+    async def test_zero_workers(self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path):
         """Test orchestrator with zero workers."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -354,15 +350,14 @@ class TestEmptyConfigurations:
 
     @pytest.mark.asyncio
     async def test_worker_with_zero_count(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
     ):
         """Test worker config with count=0."""
-        worker_configs = [WorkerConfig(profile="coding-worker", count=0)]
+        worker_configs = [WorkerConfig(name="coding-worker", config=coding_worker_config, count=0)]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )

@@ -14,13 +14,12 @@ class TestForemanInitialization:
 
     @pytest.mark.asyncio
     async def test_foreman_initializes_on_first_message(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test foreman initializes lazily on first message."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -47,13 +46,12 @@ class TestForemanInitialization:
 
     @pytest.mark.asyncio
     async def test_foreman_only_initializes_once(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test foreman initializes only on first message."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -86,13 +84,12 @@ class TestForemanInitialization:
 
     @pytest.mark.asyncio
     async def test_foreman_receives_system_instructions(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test foreman receives correct system instructions."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -120,14 +117,47 @@ class TestForemanInitialization:
             assert "issue_manager" in call_args["content"]
 
     @pytest.mark.asyncio
+    async def test_foreman_instructions_include_semantic_operations(
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
+    ):
+        """Test foreman instructions include semantic operations like unblock."""
+        orchestrator = ForemanWorkerOrchestrator(
+            loader=mock_loader,
+            foreman_config=foreman_config,
+            worker_configs=[],
+            workspace_root=workspace_dir,
+        )
+
+        with patch("amplifier_orchestrator_foreman_worker.orchestrator.AmplifierSession") as mock_session_class:
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.execute = AsyncMock(return_value="Response")
+
+            mock_context = AsyncMock()
+            mock_context.add_message = AsyncMock()
+            mock_session.coordinator = MagicMock()
+            mock_session.coordinator.get = MagicMock(return_value=mock_context)
+
+            mock_session_class.return_value = mock_session
+
+            await orchestrator.execute_user_message("Test")
+
+            call_args = mock_context.add_message.call_args[0][0]
+            content = call_args["content"]
+
+            # Verify semantic operations are documented
+            assert "unblock" in content
+            assert "complete" in content
+            assert "pending_user_input" in content
+
+    @pytest.mark.asyncio
     async def test_foreman_execution_error_handling(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, workspace_dir: Path
     ):
         """Test foreman execution handles errors properly."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -152,7 +182,7 @@ class TestEventLoopFairness:
 
     @pytest.mark.asyncio
     async def test_workers_get_scheduled_during_foreman_execution(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
     ):
         """Test workers can run while foreman is executing.
 
@@ -161,9 +191,8 @@ class TestEventLoopFairness:
         """
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
-            worker_configs=[WorkerConfig(profile="coding-worker", count=1)],
+            foreman_config=foreman_config,
+            worker_configs=[WorkerConfig(name="coding-worker", config=coding_worker_config, count=1)],
             workspace_root=workspace_dir,
         )
 
@@ -234,15 +263,14 @@ class TestWorkerTaskProcessing:
 
     @pytest.mark.asyncio
     async def test_worker_receives_system_instructions(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
     ):
         """Test worker receives correct system instructions."""
-        worker_configs = [WorkerConfig(profile="coding-worker", count=1)]
+        worker_configs = [WorkerConfig(name="coding-worker", config=coding_worker_config, count=1)]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -292,19 +320,74 @@ class TestWorkerTaskProcessing:
             assert "worker" in call_args["content"].lower()
 
     @pytest.mark.asyncio
+    async def test_worker_instructions_include_semantic_operations(
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
+    ):
+        """Test worker instructions include semantic operations like claim, complete, request_user_input."""
+        worker_configs = [WorkerConfig(name="coding-worker", config=coding_worker_config, count=1)]
+
+        orchestrator = ForemanWorkerOrchestrator(
+            loader=mock_loader,
+            foreman_config=foreman_config,
+            worker_configs=worker_configs,
+            workspace_root=workspace_dir,
+        )
+
+        with patch("amplifier_orchestrator_foreman_worker.orchestrator.AmplifierSession") as mock_session_class:
+            sessions_created = []
+
+            def track_sessions(config, **kwargs):
+                session = AsyncMock()
+                session.__aenter__ = AsyncMock(return_value=session)
+                session.__aexit__ = AsyncMock()
+                session.execute = AsyncMock(return_value="no work")
+
+                mock_context = AsyncMock()
+                session.coordinator = MagicMock()
+                session.coordinator.get = MagicMock(return_value=mock_context)
+
+                sessions_created.append(session)
+                return session
+
+            mock_session_class.side_effect = track_sessions
+
+            async with orchestrator:
+                await orchestrator.execute_user_message("Test")
+
+                # Give worker time to start
+                await asyncio.sleep(0.1)
+
+            # Find worker session (not the foreman)
+            worker_session = None
+            for session in sessions_created[1:]:  # Skip foreman
+                if session.coordinator.get.called:
+                    worker_session = session
+                    break
+
+            assert worker_session is not None
+
+            worker_context = worker_session.coordinator.get.return_value
+            call_args = worker_context.add_message.call_args[0][0]
+            content = call_args["content"]
+
+            # Verify semantic operations are documented in worker instructions
+            assert "claim" in content.lower()
+            assert "complete" in content.lower()
+            assert "request_user_input" in content
+
+    @pytest.mark.asyncio
     async def test_multiple_workers_coexist(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test multiple workers can coexist and run independently."""
         worker_configs = [
-            WorkerConfig(profile="coding-worker", count=2),
-            WorkerConfig(profile="research-worker", count=1),
+            WorkerConfig(name="coding-worker", config=coding_worker_config, count=2),
+            WorkerConfig(name="research-worker", config=research_worker_config, count=1),
         ]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -346,15 +429,14 @@ class TestFullWorkflow:
 
     @pytest.mark.asyncio
     async def test_orchestrator_lifecycle(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, workspace_dir: Path
     ):
         """Test complete lifecycle: start, process messages, shutdown."""
-        worker_configs = [WorkerConfig(profile="coding-worker", count=1)]
+        worker_configs = [WorkerConfig(name="coding-worker", config=coding_worker_config, count=1)]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )

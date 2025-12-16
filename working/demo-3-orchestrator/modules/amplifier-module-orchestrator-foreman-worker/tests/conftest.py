@@ -10,6 +10,48 @@ import pytest
 
 
 @pytest.fixture
+def foreman_config() -> dict:
+    """Create test foreman configuration.
+
+    Returns:
+        Foreman mount plan configuration dictionary
+    """
+    return {
+        "behaviors": {"context": {"provider": "context-anthropic"}},
+        "tools": {"issue_manager": {"provider": "tool-issue"}},
+    }
+
+
+@pytest.fixture
+def coding_worker_config() -> dict:
+    """Create test coding worker configuration.
+
+    Returns:
+        Coding worker mount plan configuration dictionary
+    """
+    return {
+        "behaviors": {"context": {"provider": "context-anthropic"}},
+        "tools": {
+            "issue_manager": {"provider": "tool-issue"},
+            "read_file": {"provider": "tool-filesystem"},
+        },
+    }
+
+
+@pytest.fixture
+def research_worker_config() -> dict:
+    """Create test research worker configuration.
+
+    Returns:
+        Research worker mount plan configuration dictionary
+    """
+    return {
+        "behaviors": {"context": {"provider": "context-anthropic"}},
+        "tools": {"issue_manager": {"provider": "tool-issue"}},
+    }
+
+
+@pytest.fixture
 def temp_mount_plans_dir(tmp_path: Path) -> Path:
     """Create temporary directory with test mount plans.
 

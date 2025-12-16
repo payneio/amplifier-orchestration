@@ -30,9 +30,12 @@ Status values:
 """
 
 import asyncio
+import json
 import logging
+import shutil
 import sys
 from pathlib import Path
+
 
 # Add the foreman-worker orchestrator to path
 orchestrator_path = Path(__file__).parent / "modules" / "amplifier-module-orchestrator-foreman-worker"
@@ -43,6 +46,15 @@ from amplifier_orchestrator_foreman_worker import ForemanWorkerOrchestrator
 from amplifier_orchestrator_foreman_worker import WorkerConfig
 from demo_stubs import StubApprovalSystem
 from demo_stubs import StubDisplaySystem
+
+
+def load_mount_plan(mount_plans_dir: Path, profile: str) -> dict:
+    """Load mount plan from JSON file."""
+    mount_plan_path = mount_plans_dir / f"{profile}.json"
+    if not mount_plan_path.exists():
+        raise FileNotFoundError(f"Mount plan not found: {mount_plan_path}")
+    with open(mount_plan_path) as f:
+        return json.load(f)
 
 
 # ANSI colors
@@ -78,9 +90,11 @@ for logger_name in [
 # Delete the .demo-workspace if it exists from prior runs
 workspace_dir = Path.cwd() / ".demo-workspace"
 if workspace_dir.exists():
-    import shutil
-
     shutil.rmtree(workspace_dir)
+
+work_dir = Path.cwd() / "work"
+if work_dir.exists():
+    shutil.rmtree(work_dir)
 
 
 def get_module_search_paths() -> list[Path]:
@@ -145,13 +159,18 @@ async def interactive_demo():
     workspace = Path.cwd() / ".demo-workspace"
     workspace.mkdir(exist_ok=True)
 
+    # Load mount plan configurations
+    mount_plans_dir = Path(__file__).parent / "mount_plans"
+    foreman_config = load_mount_plan(mount_plans_dir, "foreman")
+    coding_worker_config = load_mount_plan(mount_plans_dir, "coding-worker")
+    research_worker_config = load_mount_plan(mount_plans_dir, "research-worker")
+
     async with ForemanWorkerOrchestrator(
         loader=loader,
-        mount_plans_dir=Path(__file__).parent / "mount_plans",
-        foreman_profile="foreman",
+        foreman_config=foreman_config,
         worker_configs=[
-            WorkerConfig(profile="coding-worker", count=2),
-            WorkerConfig(profile="research-worker", count=2),  # 2 research workers for 2 research tasks
+            WorkerConfig(name="coding-worker", config=coding_worker_config, count=2),
+            WorkerConfig(name="research-worker", config=research_worker_config, count=2),
         ],
         workspace_root=workspace,
         approval_system=approval_system,
@@ -249,6 +268,7 @@ async def interactive_demo():
         max_wait = 120  # Maximum 2 minutes
         poll_interval = 10  # Check every 10 seconds
         waited = 0
+        zero_count = 0  # Track consecutive "0" responses
 
         while waited < max_wait:
             await asyncio.sleep(poll_interval)
@@ -256,15 +276,30 @@ async def interactive_demo():
 
             # Ask foreman for status
             status_response = await orchestrator.execute_user_message(
-                "How many tasks are still open or in_progress? Reply with just the count."
+                "How many tasks are still open or in_progress? Reply with just the number."
             )
 
-            print(f"{Color.CYAN}[{waited}s] Status check: {status_response[:100]}...{Color.ENDC}")
+            # Extract just the first line for display
+            first_line = status_response.strip().split("\n")[0][:50]
+            print(f"{Color.CYAN}[{waited}s] Status: {first_line}{Color.ENDC}")
 
-            # Check if all complete (look for "0" in response)
-            if "0" in status_response and ("complete" in status_response.lower() or "closed" in status_response.lower() or "all" in status_response.lower()):
-                print(f"{Color.GREEN}All tasks complete!{Color.ENDC}")
-                break
+            # Check if response indicates 0 remaining tasks
+            # Look for "0" at start or as the only content, or keywords indicating completion
+            response_lower = status_response.lower().strip()
+            if (
+                response_lower.startswith("0")
+                or response_lower == "0"
+                or "0 tasks" in response_lower
+                or "no tasks" in response_lower
+                or "all tasks" in response_lower
+                and "closed" in response_lower
+            ):
+                zero_count += 1
+                if zero_count >= 2:  # Require 2 consecutive "0" responses to confirm
+                    print(f"{Color.GREEN}All tasks complete!{Color.ENDC}")
+                    break
+            else:
+                zero_count = 0  # Reset if we get a non-zero response
         else:
             print(f"{Color.YELLOW}Max wait time reached. Some tasks may still be in progress.{Color.ENDC}")
 

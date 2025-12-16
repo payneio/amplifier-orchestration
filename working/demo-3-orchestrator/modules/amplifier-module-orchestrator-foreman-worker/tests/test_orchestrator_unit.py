@@ -12,24 +12,23 @@ from amplifier_orchestrator_foreman_worker import ForemanWorkerOrchestrator, Wor
 class TestOrchestratorInitialization:
     """Test orchestrator initialization."""
 
-    def test_create_orchestrator(self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path):
+    def test_create_orchestrator(self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path):
         """Test creating orchestrator with valid configuration."""
         worker_configs = [
-            WorkerConfig(profile="coding-worker", count=2),
-            WorkerConfig(profile="research-worker", count=1),
+            WorkerConfig(name="coding-worker", config=coding_worker_config, count=2),
+            WorkerConfig(name="research-worker", config=research_worker_config, count=1),
         ]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
 
         assert orchestrator.loader == mock_loader
-        assert orchestrator.mount_plans_dir == temp_mount_plans_dir
-        assert orchestrator.foreman_profile == "foreman"
+        assert orchestrator.foreman_config == foreman_config
         assert orchestrator.worker_configs == worker_configs
         assert orchestrator.workspace_root == workspace_dir
         assert orchestrator.foreman_session is None
@@ -37,7 +36,7 @@ class TestOrchestratorInitialization:
         assert orchestrator._initialized is False
 
     def test_create_orchestrator_with_systems(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test creating orchestrator with approval and display systems."""
         approval_system = MagicMock()
@@ -45,8 +44,8 @@ class TestOrchestratorInitialization:
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
             approval_system=approval_system,
@@ -56,12 +55,12 @@ class TestOrchestratorInitialization:
         assert orchestrator.approval_system == approval_system
         assert orchestrator.display_system == display_system
 
-    def test_orchestrator_initial_state(self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path):
+    def test_orchestrator_initial_state(self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path):
         """Test orchestrator starts with correct initial state."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -77,13 +76,13 @@ class TestOrchestratorContextManager:
 
     @pytest.mark.asyncio
     async def test_context_manager_entry(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test entering orchestrator context manager."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -93,13 +92,13 @@ class TestOrchestratorContextManager:
 
     @pytest.mark.asyncio
     async def test_context_manager_exit_calls_shutdown(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test exiting context manager calls shutdown."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -116,13 +115,13 @@ class TestOrchestratorShutdown:
 
     @pytest.mark.asyncio
     async def test_shutdown_before_initialization(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test shutdown before initialization does nothing."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -133,12 +132,12 @@ class TestOrchestratorShutdown:
         assert not orchestrator._initialized
 
     @pytest.mark.asyncio
-    async def test_shutdown_sets_event(self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path):
+    async def test_shutdown_sets_event(self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path):
         """Test shutdown sets shutdown event."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -152,13 +151,13 @@ class TestOrchestratorShutdown:
 
     @pytest.mark.asyncio
     async def test_shutdown_waits_for_workers(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test shutdown waits for all worker tasks."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -182,13 +181,13 @@ class TestOrchestratorShutdown:
 
     @pytest.mark.asyncio
     async def test_shutdown_closes_foreman_session(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test shutdown closes foreman session."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -205,13 +204,13 @@ class TestOrchestratorShutdown:
 
     @pytest.mark.asyncio
     async def test_shutdown_handles_worker_exceptions(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test shutdown handles worker task exceptions gracefully."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
@@ -237,18 +236,18 @@ class TestOrchestratorWorkerManagement:
 
     @pytest.mark.asyncio
     async def test_worker_count_matches_config(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test correct number of workers are created."""
         worker_configs = [
-            WorkerConfig(profile="coding-worker", count=2),
-            WorkerConfig(profile="research-worker", count=1),
+            WorkerConfig(name="coding-worker", config=coding_worker_config, count=2),
+            WorkerConfig(name="research-worker", config=research_worker_config, count=1),
         ]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -270,17 +269,17 @@ class TestOrchestratorWorkerManagement:
 
     @pytest.mark.asyncio
     async def test_worker_ids_are_unique(
-        self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path
+        self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path
     ):
         """Test each worker gets a unique ID."""
         worker_configs = [
-            WorkerConfig(profile="coding-worker", count=3),
+            WorkerConfig(name="coding-worker", config=coding_worker_config, count=3),
         ]
 
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=worker_configs,
             workspace_root=workspace_dir,
         )
@@ -300,12 +299,12 @@ class TestOrchestratorWorkerManagement:
             assert "coding-worker-2" in task_names
 
     @pytest.mark.asyncio
-    async def test_empty_worker_config(self, mock_loader: MagicMock, temp_mount_plans_dir: Path, workspace_dir: Path):
+    async def test_empty_worker_config(self, mock_loader: MagicMock, foreman_config: dict, coding_worker_config: dict, research_worker_config: dict, workspace_dir: Path):
         """Test orchestrator with no workers configured."""
         orchestrator = ForemanWorkerOrchestrator(
             loader=mock_loader,
-            mount_plans_dir=temp_mount_plans_dir,
-            foreman_profile="foreman",
+            foreman_config=foreman_config,
+            
             worker_configs=[],
             workspace_root=workspace_dir,
         )
