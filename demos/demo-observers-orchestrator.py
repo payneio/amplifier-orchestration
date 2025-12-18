@@ -3,19 +3,20 @@ Research Compiler with Fact-Checkers Demo
 
 Demonstrates the Observer Orchestrator pattern where:
 - A main session (Researcher) researches and writes content
-- Observer sessions watch the output and create feedback issues
-- The Researcher addresses feedback and refines the content
+- Observer sessions run continuously in background, watching for changes
+- Observers automatically create feedback issues when they spot problems
+- The Researcher addresses feedback when prompted
 
-KEY PATTERN - Bottom-Up Feedback:
-================================
-Unlike the Foreman-Worker pattern (top-down delegation), this demo shows
-bottom-up feedback where observers autonomously identify issues:
+KEY PATTERN - Bottom-Up Feedback with Continuous Observers:
+==========================================================
+Like the Foreman-Worker pattern (where workers run continuously), observers
+here run in infinite background loops:
 
 1. Researcher writes initial research on a topic
-2. Observers (Skeptic, Depth Seeker, Clarity Editor) read the content
-3. Observers create issues when they spot problems in their domain
-4. Researcher sees issues and addresses them
-5. Cycle continues until observers have no more feedback
+2. Observers (Skeptic, Depth Seeker, Clarity Editor) automatically detect changes
+3. Observers review and create issues when they spot problems
+4. User asks Researcher to address feedback
+5. Cycle continues naturally without manual coordination
 
 Observer Types:
 - Skeptic: Questions claims that seem unsupported or dubious
@@ -23,7 +24,7 @@ Observer Types:
 - Clarity Editor: Flags confusing or unclear passages
 
 This demonstrates observers as autonomous critics that improve quality
-through continuous feedback, without direct coordination.
+through continuous background monitoring.
 """
 
 import asyncio
@@ -98,16 +99,15 @@ def load_mount_plan(mount_plans_dir: Path, profile: str) -> dict:
 # Demo configuration
 RESEARCH_TOPIC = "the benefits and risks of intermittent fasting for health and longevity"
 RESEARCH_FILE = "work/research.md"
-MAX_ROUNDS = 3  # Maximum feedback rounds before stopping
 
 
 async def interactive_demo():
-    """Run the observer demo with the ObserverOrchestrator."""
+    """Run the observer demo with continuous background observers."""
     print(
         f"""
 {Color.BOLD}======================================================================{Color.ENDC}
 {Color.BOLD}  Research Compiler with Fact-Checkers Demo{Color.ENDC}
-{Color.BOLD}  Observer Orchestrator: Bottom-Up Feedback Pattern{Color.ENDC}
+{Color.BOLD}  Observer Orchestrator: Continuous Background Observers{Color.ENDC}
 {Color.BOLD}======================================================================{Color.ENDC}
     """
     )
@@ -204,6 +204,8 @@ async def interactive_demo():
     print(f"{Color.BLUE}Creating Observer Orchestrator...{Color.ENDC}")
     print("   Main session: Researcher")
     print(f"   Observers: {', '.join(obs.name for obs in observer_configs)}")
+    print("   Observer check interval: 15 seconds")
+    print("   Watch paths: work/")
     print("=" * 70)
 
     async with ObserverOrchestrator(
@@ -213,11 +215,13 @@ async def interactive_demo():
         workspace_root=workspace,
         approval_system=approval_system,
         display_system=display_system,
+        observer_interval=15.0,  # Check every 15 seconds
+        watch_paths=["work/"],
     ) as orchestrator:
-        print(f"{Color.GREEN}Orchestrator created{Color.ENDC}\n")
+        print(f"{Color.GREEN}Orchestrator created - observers starting in background{Color.ENDC}\n")
 
-        # Phase 1: Initial research
-        print(f"\n{Color.BLUE}{Color.BOLD}=== PHASE 1: Initial Research ==={Color.ENDC}")
+        # === User Interaction 1: Initial Research ===
+        print(f"\n{Color.BLUE}{Color.BOLD}=== USER: Create initial research ==={Color.ENDC}")
         print(f"{Color.YELLOW}Topic: {RESEARCH_TOPIC}{Color.ENDC}\n")
 
         initial_prompt = f"""Research and write about: {RESEARCH_TOPIC}
@@ -245,44 +249,58 @@ Write the research now."""
         else:
             print(f"{Color.CYAN}{response}{Color.ENDC}")
 
-        # Show session ID
+        # Show session IDs
         if orchestrator.main_session_id:
             print(f"\n{Color.BLUE}Main session ID: {orchestrator.main_session_id}{Color.ENDC}")
 
-        # Phase 2-N: Feedback loops
-        for round_num in range(1, MAX_ROUNDS + 1):
-            print(f"\n{'=' * 70}")
-            print(f"{Color.BOLD}FEEDBACK ROUND {round_num} of {MAX_ROUNDS}{Color.ENDC}")
-            print("=" * 70)
+        # === Wait for observers to review ===
+        print(f"\n{'=' * 70}")
+        print(f"{Color.MAGENTA}{Color.BOLD}Observers are now reviewing in the background...{Color.ENDC}")
+        print(f"{Color.YELLOW}(Waiting 30 seconds for observers to detect changes and create issues){Color.ENDC}")
+        await asyncio.sleep(30)
 
-            # Run observers
-            print(f"\n{Color.MAGENTA}{Color.BOLD}Observers reviewing...{Color.ENDC}")
-            await asyncio.sleep(2)  # Brief pause for readability
+        # Show observer session IDs
+        if orchestrator.observer_session_ids:
+            print(f"\n{Color.BLUE}Observer sessions:{Color.ENDC}")
+            for name, sid in orchestrator.observer_session_ids.items():
+                print(f"   {name}: {sid}")
 
-            issues_created = await orchestrator.run_observer_round(round_num)
+        # === User Interaction 2: Address Feedback ===
+        print(f"\n{'=' * 70}")
+        print(f"{Color.BLUE}{Color.BOLD}=== USER: Address any feedback ==={Color.ENDC}\n")
 
-            if issues_created == 0:
-                print(f"\n{Color.GREEN}{Color.BOLD}All observers satisfied! No more feedback.{Color.ENDC}")
-                break
+        print(f"{Color.CYAN}Researcher checking for and addressing issues...{Color.ENDC}")
+        response = await orchestrator.execute_user_message(
+            "Check for any open feedback issues and address them. "
+            "Update the research file to fix any problems the observers found."
+        )
 
-            print(f"\n{Color.YELLOW}Observers created {issues_created} issue(s){Color.ENDC}")
-
-            # Address feedback
-            print(f"\n{Color.BLUE}{Color.BOLD}Researcher addressing feedback...{Color.ENDC}")
-            await asyncio.sleep(2)
-
-            had_feedback = await orchestrator.address_feedback(round_num)
-
-            if not had_feedback:
-                print(f"{Color.GREEN}No feedback to address - work complete!{Color.ENDC}")
-                break
-
-            print(f"{Color.GREEN}Feedback addressed{Color.ENDC}")
-
+        print(f"\n{Color.GREEN}Feedback addressed{Color.ENDC}")
+        if len(response) > 400:
+            print(f"{Color.CYAN}{response[:400]}...{Color.ENDC}")
         else:
-            print(f"\n{Color.YELLOW}Maximum rounds ({MAX_ROUNDS}) reached.{Color.ENDC}")
+            print(f"{Color.CYAN}{response}{Color.ENDC}")
 
-        print(f"\n{Color.CYAN}Shutting down orchestrator...{Color.ENDC}")
+        # === Wait for observers to review changes ===
+        print(f"\n{'=' * 70}")
+        print(f"{Color.MAGENTA}{Color.BOLD}Observers reviewing the updated work...{Color.ENDC}")
+        print(f"{Color.YELLOW}(Waiting 30 seconds for another review cycle){Color.ENDC}")
+        await asyncio.sleep(30)
+
+        # === User Interaction 3: Final check ===
+        print(f"\n{'=' * 70}")
+        print(f"{Color.BLUE}{Color.BOLD}=== USER: Final status check ==={Color.ENDC}\n")
+
+        print(f"{Color.CYAN}Checking final status...{Color.ENDC}")
+        response = await orchestrator.execute_user_message(
+            "Give me a summary: How many issues were raised and addressed? "
+            "Are there any remaining open issues? What's the final state of the research?"
+        )
+
+        print(f"\n{Color.GREEN}Final status:{Color.ENDC}")
+        print(f"{Color.CYAN}{response}{Color.ENDC}")
+
+        print(f"\n{Color.CYAN}Shutting down orchestrator (stopping observer loops)...{Color.ENDC}")
 
     # Orchestrator cleanup handled by context manager
     print(f"{Color.GREEN}Orchestrator shut down gracefully{Color.ENDC}")
@@ -298,21 +316,21 @@ Write the research now."""
 
 {Color.BOLD}Key Features Demonstrated:{Color.ENDC}
 
-{Color.CYAN}Observer Orchestrator Pattern{Color.ENDC}
-  - Main session does actual work (research/writing)
-  - Observers watch and provide specialized feedback
-  - Issues flow bottom-up (observers create, main addresses)
-  - Natural convergence when observers are satisfied
+{Color.CYAN}Continuous Background Observers{Color.ENDC}
+  - Observers run in infinite loops (like workers in foreman-worker)
+  - Automatically detect file changes via watch_paths
+  - Create feedback issues without manual triggering
+  - No need for explicit "run observer round" calls
+
+{Color.CYAN}Change Detection{Color.ENDC}
+  - Observers track file modification times
+  - Only review when files actually change
+  - Avoids duplicate reviews of unchanged content
 
 {Color.CYAN}Compared to Foreman-Worker{Color.ENDC}
-  - Foreman-Worker: Top-down delegation (foreman creates tasks)
-  - Observer: Bottom-up feedback (observers create issues)
-  - Main session IS the worker, not a delegator
-
-{Color.CYAN}Observer Types Used{Color.ENDC}
-  - Skeptic: Questioned unsupported claims
-  - Depth Seeker: Identified areas needing expansion
-  - Clarity Editor: Flagged confusing passages
+  - Foreman-Worker: Workers claim tasks from queue (top-down)
+  - Observer: Observers watch output and create feedback (bottom-up)
+  - Both use continuous background loops
 
 {Color.BOLD}When to Use Observer Orchestrator:{Color.ENDC}
   - Content creation with quality review
