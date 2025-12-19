@@ -43,7 +43,12 @@ from demo_stubs import StubApprovalSystem, StubDisplaySystem
 orchestrator_path = Path(__file__).parent / "modules" / "amplifier-module-orchestrator-observers"
 sys.path.insert(0, str(orchestrator_path))
 
+# Add issue manager to path for monitoring
+issue_manager_path = Path(__file__).parent / "modules" / "amplifier-module-issue-manager"
+sys.path.insert(0, str(issue_manager_path))
+
 from amplifier_module_orchestrator_observers import ObserverConfig, ObserverOrchestrator
+from amplifier_module_issue_manager import IssueManager
 
 
 # ANSI colors
@@ -57,6 +62,136 @@ class Color:
     MAGENTA = "\033[35m"
     ENDC = "\033[0m"
     BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+
+# Issue status symbols and colors
+STATUS_DISPLAY = {
+    "open": (Color.YELLOW, "○"),
+    "in_progress": (Color.BLUE, "◐"),
+    "pending_user_input": (Color.MAGENTA, "?"),
+    "closed": (Color.GREEN, "●"),
+}
+
+PRIORITY_DISPLAY = {
+    0: (Color.RED, "P0"),
+    1: (Color.RED, "P1"),
+    2: (Color.YELLOW, "P2"),
+    3: (Color.CYAN, "P3"),
+    4: (Color.DIM, "P4"),
+}
+
+
+def format_issue_line(issue, show_assignee: bool = True) -> str:
+    """Format a single issue as a compact one-line display."""
+    status_color, status_symbol = STATUS_DISPLAY.get(issue.status, (Color.ENDC, "?"))
+    priority_color, priority_label = PRIORITY_DISPLAY.get(issue.priority, (Color.ENDC, f"P{issue.priority}"))
+
+    # Truncate title if too long
+    title = issue.title[:50] + "..." if len(issue.title) > 50 else issue.title
+
+    # Format assignee if present
+    assignee_part = ""
+    if show_assignee and issue.assignee:
+        assignee_part = f" {Color.DIM}[{issue.assignee}]{Color.ENDC}"
+
+    return (
+        f"  {status_color}{status_symbol}{Color.ENDC} "
+        f"{priority_color}{priority_label}{Color.ENDC} "
+        f"{title}{assignee_part}"
+    )
+
+
+def display_issue_summary(manager: IssueManager, label: str = "Issues") -> dict:
+    """Display a summary of all issues and return counts by status."""
+    issues = manager.list_issues()
+
+    counts = {"open": 0, "in_progress": 0, "pending_user_input": 0, "closed": 0}
+    for issue in issues:
+        if issue.status in counts:
+            counts[issue.status] += 1
+
+    total = len(issues)
+    if total == 0:
+        print(f"  {Color.DIM}No issues yet{Color.ENDC}")
+        return counts
+
+    # Summary line
+    summary_parts = []
+    if counts["open"]:
+        summary_parts.append(f"{Color.YELLOW}{counts['open']} open{Color.ENDC}")
+    if counts["in_progress"]:
+        summary_parts.append(f"{Color.BLUE}{counts['in_progress']} in progress{Color.ENDC}")
+    if counts["closed"]:
+        summary_parts.append(f"{Color.GREEN}{counts['closed']} closed{Color.ENDC}")
+
+    print(f"  {label}: {', '.join(summary_parts)} ({total} total)")
+
+    # Show open/in-progress issues (most relevant)
+    active_issues = [i for i in issues if i.status in ("open", "in_progress")]
+    for issue in sorted(active_issues, key=lambda i: (i.priority, i.created_at)):
+        print(format_issue_line(issue))
+
+    return counts
+
+
+async def monitor_issues_with_feedback(
+    manager: IssueManager,
+    duration: float,
+    poll_interval: float = 3.0,
+    label: str = "Observer Review",
+) -> None:
+    """Monitor issues during a wait period, showing changes as they happen."""
+    seen_issues: dict[str, str] = {}  # id -> status
+    start_time = asyncio.get_event_loop().time()
+
+    print(f"\n{Color.DIM}{'─' * 60}{Color.ENDC}")
+    print(f"{Color.MAGENTA}📋 {label} - monitoring for {int(duration)}s...{Color.ENDC}")
+
+    while True:
+        elapsed = asyncio.get_event_loop().time() - start_time
+        if elapsed >= duration:
+            break
+
+        # Check for new/changed issues
+        try:
+            issues = manager.list_issues()
+
+            for issue in issues:
+                prev_status = seen_issues.get(issue.id)
+
+                if prev_status is None:
+                    # New issue
+                    status_color, status_symbol = STATUS_DISPLAY.get(issue.status, (Color.ENDC, "?"))
+                    print(
+                        f"  {Color.GREEN}+ NEW{Color.ENDC} {status_color}{status_symbol}{Color.ENDC} "
+                        f"{issue.title[:45]}{'...' if len(issue.title) > 45 else ''} "
+                        f"{Color.DIM}[{issue.assignee or 'unassigned'}]{Color.ENDC}"
+                    )
+                    seen_issues[issue.id] = issue.status
+
+                elif prev_status != issue.status:
+                    # Status changed
+                    old_color, old_symbol = STATUS_DISPLAY.get(prev_status, (Color.ENDC, "?"))
+                    new_color, new_symbol = STATUS_DISPLAY.get(issue.status, (Color.ENDC, "?"))
+                    print(
+                        f"  {Color.CYAN}↻{Color.ENDC} {old_color}{old_symbol}{Color.ENDC}→"
+                        f"{new_color}{new_symbol}{Color.ENDC} "
+                        f"{issue.title[:45]}{'...' if len(issue.title) > 45 else ''} "
+                        f"{Color.DIM}({prev_status}→{issue.status}){Color.ENDC}"
+                    )
+                    seen_issues[issue.id] = issue.status
+
+        except Exception:
+            pass  # Ignore transient read errors
+
+        # Wait for next poll (but not longer than remaining time)
+        remaining = duration - elapsed
+        await asyncio.sleep(min(poll_interval, remaining))
+
+    # Final summary
+    print(f"{Color.DIM}{'─' * 60}{Color.ENDC}")
+    display_issue_summary(manager, "Current state")
 
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -208,6 +343,11 @@ async def interactive_demo():
     print("   Watch paths: work/")
     print("=" * 70)
 
+    # Create issue manager for monitoring (reads from same location as sessions)
+    issues_dir = workspace / ".amplifier" / "issues"
+    issues_dir.mkdir(parents=True, exist_ok=True)
+    issue_monitor = IssueManager(data_dir=issues_dir, actor="monitor")
+
     async with ObserverOrchestrator(
         loader=loader,
         main_config=researcher_config,
@@ -256,8 +396,12 @@ Write the research now."""
         # === Wait for observers to review ===
         print(f"\n{'=' * 70}")
         print(f"{Color.MAGENTA}{Color.BOLD}Observers are now reviewing in the background...{Color.ENDC}")
-        print(f"{Color.YELLOW}(Waiting 30 seconds for observers to detect changes and create issues){Color.ENDC}")
-        await asyncio.sleep(30)
+        await monitor_issues_with_feedback(
+            issue_monitor,
+            duration=30.0,
+            poll_interval=2.0,
+            label="Observers creating feedback issues",
+        )
 
         # Show observer session IDs
         if orchestrator.observer_session_ids:
@@ -269,11 +413,49 @@ Write the research now."""
         print(f"\n{'=' * 70}")
         print(f"{Color.BLUE}{Color.BOLD}=== USER: Address any feedback ==={Color.ENDC}\n")
 
+        # Show current issues before researcher starts
+        print(f"{Color.YELLOW}Issues created by observers:{Color.ENDC}")
+        display_issue_summary(issue_monitor, "Before addressing")
+        print()
+
         print(f"{Color.CYAN}Researcher checking for and addressing issues...{Color.ENDC}")
-        response = await orchestrator.execute_user_message(
-            "Check for any open feedback issues and address them. "
-            "Update the research file to fix any problems the observers found."
-        )
+
+        # Run researcher and monitor concurrently
+        async def researcher_task():
+            return await orchestrator.execute_user_message(
+                "Check for any open feedback issues and address them. "
+                "Update the research file to fix any problems the observers found."
+            )
+
+        async def monitor_task():
+            """Monitor while researcher works (up to 120 seconds)."""
+            seen: dict[str, str] = {}
+            for _ in range(60):  # Check for up to 2 minutes
+                try:
+                    for issue in issue_monitor.list_issues():
+                        prev = seen.get(issue.id)
+                        if prev and prev != issue.status:
+                            old_color, old_sym = STATUS_DISPLAY.get(prev, (Color.ENDC, "?"))
+                            new_color, new_sym = STATUS_DISPLAY.get(issue.status, (Color.ENDC, "?"))
+                            action = "addressed" if issue.status == "closed" else "working on"
+                            print(
+                                f"  {Color.CYAN}↻ Researcher {action}:{Color.ENDC} "
+                                f"{old_color}{old_sym}{Color.ENDC}→{new_color}{new_sym}{Color.ENDC} "
+                                f"{issue.title[:40]}{'...' if len(issue.title) > 40 else ''}"
+                            )
+                        seen[issue.id] = issue.status
+                except Exception:
+                    pass
+                await asyncio.sleep(2)
+
+        # Start monitoring in background, wait for researcher
+        monitor = asyncio.create_task(monitor_task())
+        response = await researcher_task()
+        monitor.cancel()
+        try:
+            await monitor
+        except asyncio.CancelledError:
+            pass
 
         print(f"\n{Color.GREEN}Feedback addressed{Color.ENDC}")
         if len(response) > 400:
@@ -281,11 +463,19 @@ Write the research now."""
         else:
             print(f"{Color.CYAN}{response}{Color.ENDC}")
 
+        # Show issue status after researcher addressed them
+        print(f"\n{Color.YELLOW}Issues after researcher addressed:{Color.ENDC}")
+        display_issue_summary(issue_monitor, "After addressing")
+
         # === Wait for observers to review changes ===
         print(f"\n{'=' * 70}")
         print(f"{Color.MAGENTA}{Color.BOLD}Observers reviewing the updated work...{Color.ENDC}")
-        print(f"{Color.YELLOW}(Waiting 30 seconds for another review cycle){Color.ENDC}")
-        await asyncio.sleep(30)
+        await monitor_issues_with_feedback(
+            issue_monitor,
+            duration=30.0,
+            poll_interval=2.0,
+            label="Observers reviewing updates",
+        )
 
         # === User Interaction 3: Final check ===
         print(f"\n{'=' * 70}")
@@ -308,11 +498,11 @@ Write the research now."""
     # Final summary
     print(
         f"""
-{'=' * 70}
+{"=" * 70}
 {Color.GREEN}{Color.BOLD}Demo Complete!{Color.ENDC}
-{'=' * 70}
+{"=" * 70}
 
-{Color.CYAN}Research file: {work_dir / 'research.md'}{Color.ENDC}
+{Color.CYAN}Research file: {work_dir / "research.md"}{Color.ENDC}
 
 {Color.BOLD}Key Features Demonstrated:{Color.ENDC}
 
